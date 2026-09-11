@@ -1,0 +1,55 @@
+name: Build macOS App
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - '秋招管理助手.py'
+      - 'requirements.txt'
+      - 'scripts/macos_smoke.py'
+      - '.github/workflows/build-macos.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build dependencies
+        run: python -m pip install 'pyinstaller>=6,<7' -r requirements.txt
+      - name: Check GUI dependencies
+        run: |
+          python -c "import tkinter, sqlite3, openpyxl; r=tkinter.Tk(); r.withdraw(); r.update(); r.destroy()"
+          python -m py_compile '秋招管理助手.py'
+      - name: Build application
+        run: >-
+          python -m PyInstaller --noconfirm --clean --onedir --windowed
+          --name '秋招管理助手'
+          --osx-bundle-identifier com.campusjobtracker.desktop
+          --target-arch '${{ matrix.arch }}'
+          '秋招管理助手.py'
+      - name: Test packaged application
+        run: python scripts/macos_smoke.py 'dist/秋招管理助手.app/Contents/MacOS/秋招管理助手'
+      - name: Package application preserving bundle permissions
+        run: ditto -c -k --sequesterRsrc --keepParent 'dist/秋招管理助手.app' 'dist/CampusJobTracker-macOS-${{ matrix.arch }}.zip'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CampusJobTracker-macOS-${{ matrix.arch }}
+          path: dist/CampusJobTracker-macOS-${{ matrix.arch }}.zip
+          if-no-files-found: error
+          retention-days: 14
